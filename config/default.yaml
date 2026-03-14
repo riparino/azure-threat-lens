@@ -1,0 +1,74 @@
+# Azure Threat Lens – Default Configuration
+# Values here serve as defaults; environment variables always take precedence.
+
+app:
+  name: "Azure Threat Lens"
+  version: "0.1.0"
+  log_level: INFO
+  log_format: console   # console | json
+  output_format: rich   # rich | json | plain
+
+azure:
+  # Timeouts in seconds
+  request_timeout: 30
+  max_retries: 3
+  retry_backoff_factor: 2.0
+
+sentinel:
+  api_version: "2023-11-01"
+  # Default time window for incident queries (hours)
+  default_lookback_hours: 72
+  # Max incidents to return per query
+  max_incidents: 100
+
+graph:
+  api_version: "v1.0"
+  # Sign-in log lookback (days) for identity investigation
+  signin_lookback_days: 30
+
+defender:
+  enabled: false
+  api_version: "2024-02-15"
+
+resource_graph:
+  # Max resources returned per query
+  max_resources: 500
+
+llm:
+  model: "claude-sonnet-4-6"
+  max_tokens: 4096
+  temperature: 0.2
+  # System prompt persona
+  system_persona: |
+    You are an expert Microsoft Azure Security Operations analyst with deep
+    knowledge of Microsoft Sentinel, Entra ID, Defender XDR, and the MITRE
+    ATT&CK framework. Your role is to help SOC analysts triage incidents,
+    investigate identities, and resolve entity context. Be concise, precise,
+    and risk-aware. Always cite the evidence from the data provided.
+
+threat_intel:
+  # Timeout per enrichment request (seconds)
+  request_timeout: 10
+  virustotal:
+    enabled: false
+    base_url: "https://www.virustotal.com/api/v3"
+  greynoise:
+    enabled: false
+    base_url: "https://api.greynoise.io/v3"
+  abuseipdb:
+    enabled: false
+    base_url: "https://api.abuseipdb.com/api/v2"
+
+triage:
+  # Severity score weights (0-10 per factor)
+  severity_weights:
+    alert_severity: 0.35
+    entity_risk: 0.25
+    threat_intel_hits: 0.25
+    recurrence: 0.15
+  # Score thresholds → triage priority label
+  priority_thresholds:
+    critical: 8.0
+    high: 6.0
+    medium: 4.0
+    low: 0.0
