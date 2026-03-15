@@ -8,7 +8,14 @@ app:
   log_format: console   # console | json
   output_format: rich   # rich | json | plain
 
+
+secret_source:
+  source: local         # local | keyvault
+  keyvault_uri: ""
+  keyvault_secret_map: {}
+
 azure:
+  auth_mode: service_principal  # service_principal | user
   # Timeouts in seconds
   request_timeout: 30
   max_retries: 3
@@ -45,6 +52,15 @@ llm:
     ATT&CK framework. Your role is to help SOC analysts triage incidents,
     investigate identities, and resolve entity context. Be concise, precise,
     and risk-aware. Always cite the evidence from the data provided.
+
+
+
+breach_manager:
+  default_auth_strategy: service_principal  # service_principal | user
+  tenant_ids: []
+  use_lighthouse: false
+  future_api_integrations: []
+  local_skills: []
 
 threat_intel:
   # Timeout per enrichment request (seconds)

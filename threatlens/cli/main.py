@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+from pathlib import Path
 
 import click
 
@@ -170,3 +172,155 @@ def investigate_resource(
 
     output_format = ctx.obj.get("output_format", "rich")
     _run(_investigate_resource(resource_id, hours, output_format))
+
+
+# ── breachmanager ──────────────────────────────────────────────────────────────
+
+@cli.command("breachmanager")
+@click.option(
+    "--scenario",
+    required=True,
+    help="Free-form breach scenario text (or incident summary) for breach-manager planning.",
+)
+@click.option(
+    "--incident-json",
+    default=None,
+    help="Optional JSON payload for incident context (title/description/severity/entities).",
+)
+@click.option(
+    "--mode",
+    default="reactive",
+    show_default=True,
+    type=click.Choice(["reactive", "proactive"], case_sensitive=False),
+    help="Planning mode for breach manager.",
+)
+@click.option(
+    "--auth-strategy",
+    default="service_principal",
+    show_default=True,
+    type=click.Choice(["service_principal", "user"], case_sensitive=False),
+    help="Credential strategy used to execute triage/remediation steps.",
+)
+@click.option(
+    "--tenant-id",
+    "tenant_ids",
+    multiple=True,
+    help="Target tenant ID; repeat for multi-tenant operations.",
+)
+@click.option(
+    "--lighthouse/--no-lighthouse",
+    default=False,
+    help="Mark operation as Azure Lighthouse delegated cross-tenant execution.",
+)
+@click.pass_context
+def breachmanager(
+    ctx: click.Context,
+    scenario: str,
+    incident_json: str | None,
+    mode: str,
+    auth_strategy: str,
+    tenant_ids: tuple[str, ...],
+    lighthouse: bool,
+) -> None:
+    """Breach manager planner for enterprise Azure multi-tenant incidents.
+
+    Examples:
+      threatlens breachmanager --scenario "AKS workload compromised and secrets exfiltrated"
+      threatlens breachmanager --scenario "Suspicious role assignments" --tenant-id <tenant> --lighthouse
+    """
+    from threatlens.cli.commands import _breachmanager
+
+    output_format = ctx.obj.get("output_format", "rich")
+    _run(
+        _breachmanager(
+            scenario,
+            incident_json,
+            mode,
+            auth_strategy,
+            tenant_ids,
+            lighthouse,
+            output_format,
+        )
+    )
+
+
+@cli.command("setup")
+@click.option(
+    "--mode",
+    default=None,
+    type=click.Choice(["dev", "prod"], case_sensitive=False),
+    help="Setup mode: dev stores secrets locally, prod uses Azure Key Vault.",
+)
+@click.option(
+    "--env-file",
+    default=".env",
+    show_default=True,
+    help="Environment file path to write.",
+)
+def setup(mode: str | None, env_file: str) -> None:
+    """Guided setup for development or production deployments.
+
+    - dev: writes local secrets to .env with restrictive file permissions
+    - prod: writes key vault pointers and non-secret metadata to .env
+    """
+
+    selected = mode or click.prompt("Setup mode", type=click.Choice(["dev", "prod"]))
+    env_values: dict[str, str] = {}
+
+    click.echo("\nAzure baseline settings")
+    env_values["ATL_AZURE_TENANT_ID"] = click.prompt("Tenant ID", default="", show_default=False)
+    env_values["ATL_AZURE_CLIENT_ID"] = click.prompt("Client ID (app registration)", default="", show_default=False)
+    env_values["ATL_AZURE_SUBSCRIPTION_ID"] = click.prompt(
+        "Subscription ID", default="", show_default=False
+    )
+    env_values["ATL_AZURE_AUTH_MODE"] = click.prompt(
+        "Auth mode", type=click.Choice(["service_principal", "user"]), default="service_principal"
+    )
+
+    env_values["ATL_SENTINEL_WORKSPACE_ID"] = click.prompt(
+        "Sentinel workspace ID", default="", show_default=False
+    )
+    env_values["ATL_SENTINEL_WORKSPACE_NAME"] = click.prompt(
+        "Sentinel workspace name", default="", show_default=False
+    )
+    env_values["ATL_SENTINEL_RESOURCE_GROUP"] = click.prompt(
+        "Sentinel resource group", default="", show_default=False
+    )
+
+    if selected == "dev":
+        click.echo("\nDevelopment mode: storing secrets locally in env file.")
+        env_values["ATL_SECRET_SOURCE"] = "local"
+        env_values["ATL_AZURE_CLIENT_SECRET"] = click.prompt(
+            "Client secret", hide_input=True, default="", show_default=False
+        )
+        env_values["ATL_OPENAI_API_KEY"] = click.prompt(
+            "Optional OpenAI API key", hide_input=True, default="", show_default=False
+        )
+        env_values["ATL_ANTHROPIC_API_KEY"] = click.prompt(
+            "Optional Anthropic API key", hide_input=True, default="", show_default=False
+        )
+    else:
+        click.echo("\nProduction mode: secrets must come from Azure Key Vault.")
+        env_values["ATL_SECRET_SOURCE"] = "keyvault"
+        env_values["ATL_KEYVAULT_URI"] = click.prompt(
+            "Key Vault URI (https://<name>.vault.azure.net)",
+            default="",
+            show_default=False,
+        )
+        env_values["ATL_KEYVAULT_SECRET_MAP"] = click.prompt(
+            "Optional JSON secret map (setting path -> key vault secret name)",
+            default="{}",
+            show_default=True,
+        )
+
+    content = "\n".join(f"{k}={v}" for k, v in env_values.items()) + "\n"
+    path = Path(env_file)
+    path.write_text(content)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+    click.echo(f"\nWrote setup to {path}.")
+    if selected == "prod":
+        click.echo("Ensure this identity has GET secret access on the configured Key Vault.")

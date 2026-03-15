@@ -33,6 +33,7 @@ class AzureConfig(BaseSettings):
     client_id: str = Field("", alias="ATL_AZURE_CLIENT_ID")
     client_secret: SecretStr = Field(SecretStr(""), alias="ATL_AZURE_CLIENT_SECRET")
     subscription_id: str = Field("", alias="ATL_AZURE_SUBSCRIPTION_ID")
+    auth_mode: str = Field("service_principal", alias="ATL_AZURE_AUTH_MODE")
 
     model_config = SettingsConfigDict(populate_by_name=True, env_file=".env")
 
@@ -94,6 +95,48 @@ class LLMConfig(BaseSettings):
     api_version: str = Field("", alias="ATL_LLM_API_VERSION")
     max_tokens: int = Field(4096, alias="ATL_LLM_MAX_TOKENS")
     temperature: float = 0.2
+    fallback_provider: str = Field("", alias="ATL_LLM_FALLBACK_PROVIDER")
+    openai_api_key: SecretStr = Field(SecretStr(""), alias="ATL_OPENAI_API_KEY")
+    anthropic_api_key: SecretStr = Field(SecretStr(""), alias="ATL_ANTHROPIC_API_KEY")
+
+    model_config = SettingsConfigDict(populate_by_name=True, env_file=".env")
+
+
+class BreachManagerFutureAPI(BaseSettings):
+    name: str = ""
+    enabled: bool = False
+    endpoint_env_var: str = ""
+    token_env_var: str = ""
+    notes: str = ""
+
+    model_config = SettingsConfigDict(populate_by_name=True)
+
+
+
+
+class BreachManagerSkillConfig(BaseSettings):
+    id: str = ""
+    name: str = ""
+    category: str = "custom"
+    purpose: str = ""
+    trigger_terms: list[str] = Field(default_factory=list)
+    playbooks_supported: list[str] = Field(default_factory=list)
+
+    model_config = SettingsConfigDict(populate_by_name=True)
+
+
+class BreachManagerConfig(BaseSettings):
+    default_auth_strategy: str = Field("service_principal", alias="ATL_BM_DEFAULT_AUTH_STRATEGY")
+    default_tenant_ids: list[str] = Field(default_factory=list, alias="ATL_BM_TENANT_IDS")
+    use_lighthouse: bool = Field(False, alias="ATL_BM_USE_LIGHTHOUSE")
+    future_api_integrations: list[BreachManagerFutureAPI] = Field(
+        default_factory=list,
+        alias="ATL_BM_FUTURE_APIS",
+    )
+    local_skills: list[BreachManagerSkillConfig] = Field(
+        default_factory=list,
+        alias="ATL_BM_LOCAL_SKILLS",
+    )
 
     model_config = SettingsConfigDict(populate_by_name=True, env_file=".env")
 
@@ -118,6 +161,16 @@ class ThreatIntelConfig(BaseSettings):
     model_config = SettingsConfigDict(populate_by_name=True, env_file=".env")
 
 
+class SecretSourceConfig(BaseSettings):
+    source: str = Field("local", alias="ATL_SECRET_SOURCE")  # local | keyvault
+    keyvault_uri: str = Field("", alias="ATL_KEYVAULT_URI")
+    # JSON map of setting path -> Key Vault secret name
+    # Example: {"azure.client_secret":"atl-azure-client-secret"}
+    keyvault_secret_map: dict[str, str] = Field(default_factory=dict, alias="ATL_KEYVAULT_SECRET_MAP")
+
+    model_config = SettingsConfigDict(populate_by_name=True, env_file=".env")
+
+
 class Settings(BaseSettings):
     log_level: str = Field("INFO", alias="ATL_LOG_LEVEL")
     log_format: str = Field("console", alias="ATL_LOG_FORMAT")  # console | json
@@ -127,7 +180,9 @@ class Settings(BaseSettings):
     azure: AzureConfig = Field(default_factory=AzureConfig)
     sentinel: SentinelConfig = Field(default_factory=SentinelConfig)
     defender: DefenderConfig = Field(default_factory=DefenderConfig)
+    secret_source: SecretSourceConfig = Field(default_factory=SecretSourceConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    breach_manager: BreachManagerConfig = Field(default_factory=BreachManagerConfig)
     threat_intel: ThreatIntelConfig = Field(default_factory=ThreatIntelConfig)
     cache_ttl_seconds: int = Field(3600, alias="ATL_CACHE_TTL_SECONDS")
 
@@ -145,7 +200,63 @@ class Settings(BaseSettings):
         if config_path.exists():
             with config_path.open() as fh:
                 self._yaml_config = yaml.safe_load(fh) or {}
+
+        if self.secret_source.source.lower() == "keyvault" and self.secret_source.keyvault_uri:
+            self._load_secrets_from_keyvault()
         return self
+
+    def _load_secrets_from_keyvault(self) -> None:
+        secret_map = {
+            "azure.client_secret": "ATL_AZURE_CLIENT_SECRET",
+            "llm.openai_api_key": "ATL_OPENAI_API_KEY",
+            "llm.anthropic_api_key": "ATL_ANTHROPIC_API_KEY",
+            "threat_intel.virustotal_api_key": "ATL_VIRUSTOTAL_API_KEY",
+            "threat_intel.greynoise_api_key": "ATL_GREYNOISE_API_KEY",
+            "threat_intel.abuseipdb_api_key": "ATL_ABUSEIPDB_API_KEY",
+        }
+        secret_map.update(self.secret_source.keyvault_secret_map)
+
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.keyvault.secrets import SecretClient
+        except Exception as exc:  # pragma: no cover - import error path is environment-dependent
+            raise RuntimeError(
+                "Key Vault secret source is configured but azure-keyvault-secrets is not available"
+            ) from exc
+
+        credential = DefaultAzureCredential()
+        client = SecretClient(vault_url=self.secret_source.keyvault_uri, credential=credential)
+
+        for field_path, secret_name in secret_map.items():
+            if self._field_has_value(field_path):
+                continue
+            try:
+                secret_value = client.get_secret(secret_name).value
+            except Exception:
+                continue
+            if secret_value:
+                self._set_secret_field(field_path, secret_value)
+
+    def _field_has_value(self, field_path: str) -> bool:
+        node: Any = self
+        parts = field_path.split(".")
+        for part in parts[:-1]:
+            node = getattr(node, part)
+        value = getattr(node, parts[-1])
+        if isinstance(value, SecretStr):
+            return bool(value.get_secret_value())
+        return bool(value)
+
+    def _set_secret_field(self, field_path: str, value: str) -> None:
+        node: Any = self
+        parts = field_path.split(".")
+        for part in parts[:-1]:
+            node = getattr(node, part)
+        current = getattr(node, parts[-1])
+        if isinstance(current, SecretStr):
+            setattr(node, parts[-1], SecretStr(value))
+        else:
+            setattr(node, parts[-1], value)
 
     def get_yaml(self, *keys: str, default: Any = None) -> Any:
         """Navigate nested YAML: get_yaml('sentinel', 'max_incidents')."""

@@ -311,3 +311,99 @@ async def _investigate_resource(
             console.print(f"  • {f}")
     else:
         console.print("\n[green]No significant findings detected.[/green]")
+
+
+# ── breachmanager ──────────────────────────────────────────────────────────────
+
+async def _breachmanager(
+    scenario: str,
+    incident_json: str | None,
+    mode: str,
+    auth_strategy: str,
+    tenant_ids: tuple[str, ...],
+    lighthouse: bool,
+    output_format: str,
+) -> None:
+    from threatlens.core.breach_manager_engine import BreachManagerEngine, BreachManagerInput
+
+    incident: dict[str, Any] | None = json.loads(incident_json) if incident_json else None
+
+    engine = BreachManagerEngine()
+    with console.status("[bold green]Generating Breach Manager plan…"):
+        plan = await engine.plan(
+            BreachManagerInput(
+                scenario=scenario,
+                incident=incident,
+                mode=mode,
+                auth_strategy=auth_strategy,
+                tenant_ids=list(tenant_ids),
+                lighthouse=lighthouse,
+            )
+        )
+
+    data = plan.model_dump(mode="json")
+    if output_format == "json":
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
+    _section("Breach Manager Plan")
+    console.print(Panel(scenario, title="Scenario"))
+    console.print(f"Mode: [bold]{plan.input_mode.upper()}[/bold]")
+    console.print(f"Auth Strategy: [bold]{plan.auth_strategy}[/bold]")
+    console.print(f"Execution Policy: [bold yellow]{plan.execution_policy}[/bold yellow]")
+    console.print("[dim]Breach Manager proposes commands only; it never executes remediation commands automatically.[/dim]")
+
+    if plan.tenant_targets:
+        console.print("\n[bold]Tenant Targets:[/bold]")
+        for t in plan.tenant_targets:
+            suffix = " (Lighthouse)" if t.lighthouse_delegated else ""
+            console.print(f"  • {t.tenant_id} / {t.subscription_id or 'n/a'}{suffix}")
+
+    if plan.selected_playbooks:
+        console.print("\n[bold]Activated Playbooks:[/bold]")
+        for skill in plan.selected_playbooks:
+            console.print(f"  • {skill}")
+
+    if plan.skills:
+        console.print("\n[bold]Skills in Use:[/bold]")
+        for skill in plan.skills:
+            console.print(f"  • {skill.name} ({skill.category})")
+
+    if plan.tools:
+        console.print("\n[bold]Tools in Use:[/bold]")
+        for tool in plan.tools:
+            gated = " (human approval)" if tool.requires_human_approval else ""
+            console.print(f"  • {tool.name}{gated}")
+
+    if plan.attack_path_hypotheses:
+        console.print("\n[bold]Attack Hypotheses:[/bold]")
+        for hypothesis in plan.attack_path_hypotheses:
+            console.print(f"  • {hypothesis}")
+
+    if plan.triage_checkpoints:
+        console.print("\n[bold]Analyst Triage Questions:[/bold]")
+        for question in plan.triage_checkpoints:
+            console.print(f"  • {question}")
+
+    if plan.actions:
+        console.print("\n[bold cyan]Execution Plan[/bold cyan]")
+        for idx, action in enumerate(plan.actions, 1):
+            console.print(f"  {idx}. [bold]{action.phase.upper()}[/bold] — {action.objective}")
+            console.print(f"     ↳ {action.details}")
+            if action.requires_approval:
+                console.print("     [yellow]Analyst approval required[/yellow]")
+            if action.command_proposals:
+                console.print("     [bold]Command Proposals (ask before execution):[/bold]")
+                for proposal in action.command_proposals:
+                    console.print(f"       - {proposal.title} [{proposal.risk}]")
+                    console.print(f"         {proposal.command}")
+            if action.guidance:
+                refs = "; ".join(f"{r.framework}: {r.title}" for r in action.guidance)
+                console.print(f"     [dim]Refs:[/dim] {refs}")
+
+    if plan.future_api_integrations:
+        console.print("\n[bold]Future API Integrations:[/bold]")
+        for api in plan.future_api_integrations:
+            console.print(
+                f"  • {api.name} | endpoint var: {api.endpoint_env_var} | token var: {api.token_env_var}"
+            )

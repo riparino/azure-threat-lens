@@ -72,3 +72,55 @@ class TestSettings:
             assert settings.llm.endpoint == "https://test.openai.azure.com/"
             assert settings.llm.deployment == "gpt-4o"
             assert settings.llm.api_version == "2024-02-01"
+
+    def test_auth_mode_and_breach_manager_fields(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ATL_AZURE_AUTH_MODE": "user",
+                "ATL_BM_DEFAULT_AUTH_STRATEGY": "user",
+                "ATL_BM_USE_LIGHTHOUSE": "true",
+            },
+        ):
+            settings = Settings()
+            assert settings.azure.auth_mode == "user"
+            assert settings.breach_manager.default_auth_strategy == "user"
+            assert settings.breach_manager.use_lighthouse is True
+
+    def test_breach_manager_local_skills_config(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ATL_BM_LOCAL_SKILLS": '[{"id":"skill.custom.sap","name":"SAP Skill","category":"app","purpose":"SAP IR","trigger_terms":["sap"],"playbooks_supported":["SAP App Compromise"]}]',
+            },
+        ):
+            settings = Settings()
+            assert len(settings.breach_manager.local_skills) == 1
+            assert settings.breach_manager.local_skills[0].id == "skill.custom.sap"
+
+
+    def test_secret_source_defaults_local(self) -> None:
+        settings = Settings()
+        assert settings.secret_source.source == "local"
+
+    def test_secret_source_keyvault_triggers_loader(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ATL_SECRET_SOURCE": "keyvault",
+                "ATL_KEYVAULT_URI": "https://example.vault.azure.net/",
+            },
+        ):
+            with patch.object(Settings, "_load_secrets_from_keyvault", return_value=None) as loader:
+                Settings()
+                loader.assert_called_once()
+
+    def test_keyvault_secret_map_parsed(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ATL_KEYVAULT_SECRET_MAP": '{"azure.client_secret":"atl-sp-secret"}',
+            },
+        ):
+            settings = Settings()
+            assert settings.secret_source.keyvault_secret_map["azure.client_secret"] == "atl-sp-secret"

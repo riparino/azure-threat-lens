@@ -19,6 +19,8 @@ A production-quality Python CLI for Microsoft Sentinel and Azure security invest
   - [resolve-entity](#resolve-entity)
   - [investigate-identity](#investigate-identity)
   - [investigate-resource](#investigate-resource)
+  - [breachmanager](#breachmanager)
+  - [setup](#setup)
   - [Global Flags](#global-flags)
 - [Threat Intelligence Integration](#threat-intelligence-integration)
 - [Azure OpenAI Integration](#azure-openai-integration)
@@ -39,6 +41,7 @@ A production-quality Python CLI for Microsoft Sentinel and Azure security invest
 - **Threat intelligence enrichment** – concurrent lookup across VirusTotal, GreyNoise, and AbuseIPDB for IPs, domains, and file hashes
 - **Azure OpenAI reasoning** – optional LLM-assisted narrative analysis and recommended actions (Entra ID auth, no API key required)
 - **Multi-tenant support** – Azure Lighthouse workspace federation for MSSPs managing multiple tenants
+- **Breach remediator planning** – scenario-aware triage questions, kill-chain response phases, and reusable skills for VM pivot, AKS secret abuse, and identity takeover
 - **Structured output** – rich terminal tables, JSON, or plain text for pipeline integration
 
 ---
@@ -206,10 +209,17 @@ All environment variables use the `ATL_` prefix. The `.env` file is loaded autom
 
 | Variable | Description | Example |
 |---|---|---|
+| `ATL_SECRET_SOURCE` | Secret backend mode (`local` or `keyvault`) | `local` |
+| `ATL_KEYVAULT_URI` | Required in prod/keyvault mode | `https://myvault.vault.azure.net/` |
+| `ATL_KEYVAULT_SECRET_MAP` | Optional JSON map of config-path -> secret name | `{"azure.client_secret":"atl-sp-secret"}` |
 | `ATL_AZURE_TENANT_ID` | Azure AD tenant ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | `ATL_AZURE_CLIENT_ID` | App Registration client (application) ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | `ATL_AZURE_CLIENT_SECRET` | App Registration client secret | `<secret-value>` |
 | `ATL_AZURE_SUBSCRIPTION_ID` | Default Azure subscription ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `ATL_AZURE_AUTH_MODE` | Global auth workflow (`service_principal` or `user`) | `service_principal` |
+| `ATL_BM_DEFAULT_AUTH_STRATEGY` | Breach Manager execution auth strategy | `service_principal` |
+| `ATL_BM_TENANT_IDS` | JSON list of default tenant IDs for breach manager runs | `["tenant-a","tenant-b"]` |
+| `ATL_BM_USE_LIGHTHOUSE` | Default Lighthouse delegated execution mode | `false` |
 | `ATL_SENTINEL_WORKSPACE_ID` | Log Analytics workspace ID for Sentinel | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | `ATL_SENTINEL_WORKSPACE_NAME` | Sentinel workspace name | `my-sentinel-ws` |
 | `ATL_SENTINEL_RESOURCE_GROUP` | Resource group containing the workspace | `rg-security` |
@@ -232,6 +242,8 @@ Threat intel providers are automatically enabled when the corresponding key is s
 | `ATL_LLM_DEPLOYMENT` | Deployment name | `gpt-4o` |
 | `ATL_LLM_API_VERSION` | API version (default: `2024-02-01`) | `2024-08-01-preview` |
 | `ATL_LLM_MAX_TOKENS` | Maximum tokens per response (default: `4096`) | `8192` |
+| `ATL_OPENAI_API_KEY` | Optional ChatGPT/OpenAI API key for degraded-mode LLM operations | `<secret>` |
+| `ATL_ANTHROPIC_API_KEY` | Optional Claude API key for degraded-mode LLM operations | `<secret>` |
 
 Authentication to Azure OpenAI uses Entra ID (the same service principal), not an API key.
 
@@ -327,12 +339,14 @@ git clone https://github.com/riparino/azure-threat-lens.git
 cd azure-threat-lens
 pip install .
 
-# 2. Configure credentials
+# 2. Guided setup (recommended)
+threatlens setup --mode dev   # local secrets for dev/test
+# or
+threatlens setup --mode prod  # key vault-backed secrets for production
+
+# (Alternative) manual setup
 cp .env.example .env
-# Edit .env and fill in ATL_AZURE_TENANT_ID, ATL_AZURE_CLIENT_ID,
-# ATL_AZURE_CLIENT_SECRET, ATL_AZURE_SUBSCRIPTION_ID,
-# ATL_SENTINEL_WORKSPACE_ID, ATL_SENTINEL_WORKSPACE_NAME,
-# ATL_SENTINEL_RESOURCE_GROUP
+# Edit .env and fill in required ATL_ variables
 
 # 3. Triage a Sentinel incident
 threatlens triage-incident 12345
@@ -345,6 +359,9 @@ threatlens resolve-entity 185.220.101.1
 
 # 6. Investigate an Azure resource
 threatlens investigate-resource /subscriptions/abc/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/my-kv
+
+# 7. Generate an enterprise breach remediation plan
+threatlens breachmanager --scenario "AKS app compromise and secret-driven privilege escalation" --tenant-id <tenant-guid> --lighthouse
 ```
 
 ---
@@ -492,6 +509,81 @@ threatlens investigate-resource \
 | `microsoft.compute/virtualmachines/runcommand/action` | VM run-command executed |
 | `microsoft.authorization/roleassignments/write` | RBAC role assigned |
 | `microsoft.authorization/roleassignments/delete` | RBAC role removed |
+
+
+### breachmanager
+
+Generate a breach response plan from a free-form scenario or incident summary. The output includes attack-path hypotheses, triage checkpoints, reusable skills/tools, and phased actions. Breach Manager is **proposal-only** and never executes remediation commands automatically.
+
+```
+threatlens breachmanager [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--scenario` | Required breach narrative or threat context to plan against |
+| `--incident-json` | Optional JSON for incident metadata (`title`, `description`, `severity`) |
+| `--mode` | `reactive` (live incident) or `proactive` (readiness/tabletop) |
+| `--auth-strategy` | `service_principal` or `user` execution strategy |
+| `--tenant-id` | Repeatable tenant target for multi-tenant operations |
+| `--lighthouse` | Mark execution as Azure Lighthouse delegated operation |
+
+Covered scenario families include O365 phishing, endpoint malware pivoting, ransomware containment, AKS compromise/secret abuse, Entra ID privilege escalation, VM lateral movement, and storage/Key Vault exfiltration paths.
+
+**Examples:**
+
+```bash
+# AKS compromise with secret pivot
+threatlens breachmanager \
+  --scenario "AKS app compromise and Kubernetes secret theft enabled role escalation" \
+  --tenant-id <tenant-guid> --lighthouse
+
+# Identity takeover with severity context
+threatlens breachmanager \
+  --scenario "Suspicious service principal created and granted high privilege" \
+  --auth-strategy user \
+  --incident-json '{"severity":"High","title":"Privilege escalation"}'
+```
+
+
+Safety model:
+- Commands are emitted as **proposals** only.
+- Each proposal requires explicit analyst confirmation before execution in your own tooling/runbooks.
+- Breach Manager does not invoke shell/Azure commands directly.
+
+Breach Manager also reserves integration variables for your planned API pipeline:
+
+- `ATL_BM_ATTACK_PATH_API_URL` / `ATL_BM_ATTACK_PATH_API_TOKEN`
+- `ATL_BM_ORCHESTRATOR_API_URL` / `ATL_BM_ORCHESTRATOR_API_TOKEN`
+- `ATL_BM_LOCAL_SKILLS` (JSON list to define additional in-app custom skills)
+- `ATL_BM_FUTURE_APIS` (JSON list for additional providers)
+
+Breach Manager skills are managed in-application. Use `ATL_BM_LOCAL_SKILLS` to extend the built-in skill registry without running an external skills server.
+
+### setup
+
+Guided configuration wizard for development or production deployment.
+
+```
+threatlens setup [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--mode` | `dev` stores secrets locally in `.env` (file mode is restricted where possible); `prod` requires Azure Key Vault |
+| `--env-file` | Output env file path (default: `.env`) |
+
+**Examples:**
+
+```bash
+# local dev/test setup
+threatlens setup --mode dev
+
+# production setup with key vault references
+threatlens setup --mode prod
+```
+
+In `prod` mode, set `ATL_SECRET_SOURCE=keyvault` and `ATL_KEYVAULT_URI`. Secrets are loaded at runtime via managed identity or service principal auth.
 
 ### Global Flags
 
