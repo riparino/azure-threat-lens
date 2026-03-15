@@ -22,6 +22,7 @@ classifiers = [
 
 dependencies = [
     "click>=8.1",
+    "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
@@ -50,9 +51,10 @@ dev = [
 
 [project.scripts]
 atl = "azure_threat_lens.cli.main:cli"
+threatlens = "threatlens.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/azure_threat_lens"]
+packages = ["src/azure_threat_lens", "threatlens"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/config", "/tests"]
