@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "azure-threat-lens"
-version = "0.1.0"
-description = "Production-quality SOC investigation tool for Microsoft Sentinel and Azure security alerts"
+version = "0.2.0"
+description = "Production-quality Python security investigation tool for Microsoft Sentinel and Azure"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -22,6 +22,7 @@ classifiers = [
 
 dependencies = [
     "click>=8.1",
+    "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
@@ -55,7 +56,7 @@ threatlens = "threatlens.cli.main:cli"
 packages = ["threatlens"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/threatlens", "/config", "/tests"]
+include = ["/threatlens", "/config", "/tests", "README.md", "pyproject.toml", ".env.example"]
 
 [tool.ruff]
 src = ["threatlens"]
