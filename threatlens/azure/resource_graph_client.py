@@ -21,6 +21,14 @@ _SCOPE = "https://management.azure.com/.default"
 _API = "2021-03-01"
 
 
+def _kql_str(value: str) -> str:
+    """Escape a string value for safe interpolation into a KQL single-quoted literal.
+
+    In KQL, a single quote inside a string literal is represented by doubling it (``''``).
+    """
+    return value.replace("'", "''")
+
+
 class ResourceGraphClient(BaseAzureClient):
     """Azure Resource Graph API client.
 
@@ -74,6 +82,7 @@ class ResourceGraphClient(BaseAzureClient):
 
     async def find_by_ip(self, ip: str) -> list[dict[str, Any]]:
         """Find any resource (NIC, public IP, load balancer, etc.) linked to an IP."""
+        safe_ip = _kql_str(ip)
         return await self.query(f"""
 Resources
 | where type in (
@@ -81,13 +90,14 @@ Resources
     'microsoft.network/networkinterfaces',
     'microsoft.network/loadbalancers'
 )
-| where properties contains '{ip}'
+| where properties contains '{safe_ip}'
 | project name, type, resourceGroup, subscriptionId, location, properties
 | limit 50
 """.strip())
 
     async def find_by_hostname(self, hostname: str) -> list[dict[str, Any]]:
         """Find VMs, App Services, AKS nodes, or DNS records matching a hostname."""
+        safe_hostname = _kql_str(hostname)
         return await self.query(f"""
 Resources
 | where type in (
@@ -96,14 +106,14 @@ Resources
     'microsoft.containerservice/managedclusters',
     'microsoft.network/dnszones'
 )
-| where name contains '{hostname}' or properties contains '{hostname}'
+| where name contains '{safe_hostname}' or properties contains '{safe_hostname}'
 | project name, type, resourceGroup, subscriptionId, location
 | limit 50
 """.strip())
 
     async def get_resource(self, resource_id: str) -> dict[str, Any] | None:
         """Fetch full metadata for any resource by its ARM resource ID."""
-        safe = resource_id.replace("'", "\\'")
+        safe = _kql_str(resource_id)
         results = await self.query(f"""
 Resources
 | where id =~ '{safe}'
@@ -115,7 +125,12 @@ Resources
         self, tag_key: str, tag_value: str | None = None
     ) -> list[dict[str, Any]]:
         """Find resources by tag key/value across all subscriptions."""
-        condition = f"tags['{tag_key}'] != ''" if tag_value is None else f"tags['{tag_key}'] =~ '{tag_value}'"
+        safe_key = _kql_str(tag_key)
+        condition = (
+            f"tags['{safe_key}'] != ''"
+            if tag_value is None
+            else f"tags['{safe_key}'] =~ '{_kql_str(tag_value)}'"
+        )
         return await self.query(f"""
 Resources
 | where {condition}
@@ -127,18 +142,20 @@ Resources
         self, resource_type: str, *, top: int = 100
     ) -> list[dict[str, Any]]:
         """List all resources of a given type (e.g., 'microsoft.compute/virtualmachines')."""
+        safe_type = _kql_str(resource_type)
         return await self.query(f"""
 Resources
-| where type =~ '{resource_type}'
+| where type =~ '{safe_type}'
 | project name, type, resourceGroup, subscriptionId, location, sku, tags
 | limit {top}
 """.strip(), top=top)
 
     async def get_vm_details(self, vm_name: str) -> dict[str, Any] | None:
+        safe_vm_name = _kql_str(vm_name)
         results = await self.query(f"""
 Resources
 | where type == 'microsoft.compute/virtualmachines'
-| where name contains '{vm_name}'
+| where name contains '{safe_vm_name}'
 | project name, resourceGroup, location,
     os=properties.storageProfile.imageReference.offer,
     sku=properties.hardwareProfile.vmSize,
