@@ -1,4 +1,4 @@
-"""Azure Threat Lens package."""
+"""Azure Threat Lens – SOC investigation tool for Microsoft Sentinel and Azure."""
 
-__all__ = ["__version__"]
-__version__ = "0.2.0"
+__version__ = "0.1.0"
+__author__ = "Azure Threat Lens Contributors"

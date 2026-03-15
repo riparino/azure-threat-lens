@@ -1,1 +1,1 @@
-"""Module package."""
+"""Utility modules: config, logging, auth."""

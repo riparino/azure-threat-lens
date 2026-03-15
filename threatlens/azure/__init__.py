@@ -1,1 +1,1 @@
-"""Module package."""
+"""Azure API clients."""

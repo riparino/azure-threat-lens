@@ -1,1 +1,1 @@
-"""Module package."""
+"""Threat intelligence clients."""

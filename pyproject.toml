@@ -10,39 +10,67 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Azure Threat Lens Contributors" }]
+keywords = ["security", "soc", "sentinel", "azure", "threat-intelligence"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security",
+]
 
 dependencies = [
+    "click>=8.1",
     "typer>=0.12",
+    "rich>=13.7",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     "httpx>=0.27",
-    "anyio>=4.3",
+    "structlog>=24.1",
     "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "anyio>=4.3",
+    "openai>=1.0",
     "azure-identity>=1.16",
     "msal>=1.28",
+    "tabulate>=0.9",
+    "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",
+    "pytest-httpx>=0.30",
     "ruff>=0.4",
     "mypy>=1.9",
+    "types-pyyaml",
+    "types-tabulate",
 ]
 
 [project.scripts]
-threatlens = "threatlens.cli.main:main"
-atl = "azure_threat_lens.cli.main:cli"
+threatlens = "threatlens.cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/azure_threat_lens", "threatlens"]
+packages = ["threatlens"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/threatlens", "/tests", "README.md", "pyproject.toml", ".env.example", "LICENSE"]
+include = ["/threatlens", "/config", "/tests", "README.md", "pyproject.toml", ".env.example"]
 
 [tool.ruff]
+src = ["threatlens"]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
