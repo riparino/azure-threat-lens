@@ -30,7 +30,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
     "anyio>=4.3",
-    "anthropic>=0.25",
+    "openai>=1.0",
     "azure-identity>=1.16",
     "msal>=1.28",
     "tabulate>=0.9",
@@ -49,16 +49,16 @@ dev = [
 ]
 
 [project.scripts]
-atl = "azure_threat_lens.cli.main:cli"
+threatlens = "threatlens.cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/azure_threat_lens"]
+packages = ["threatlens"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/config", "/tests"]
+include = ["/threatlens", "/config", "/tests"]
 
 [tool.ruff]
-src = ["src"]
+src = ["threatlens"]
 line-length = 100
 target-version = "py311"
 

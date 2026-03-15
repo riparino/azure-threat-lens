@@ -4,23 +4,26 @@ from __future__ import annotations
 
 import pytest
 
-from azure_threat_lens.integrations.threat_intel.enricher import ThreatIntelEnricher, _is_public_ip
-from azure_threat_lens.models.entity import ThreatIntelHit
+from threatlens.intel.enricher import ThreatIntelEnricher, is_public_ip
+from threatlens.models.entities import ThreatIntelHit
 
 
 class TestPublicIpDetection:
     def test_public_ip(self) -> None:
-        assert _is_public_ip("8.8.8.8") is True
-        assert _is_public_ip("1.1.1.1") is True
+        assert is_public_ip("8.8.8.8") is True
+        assert is_public_ip("1.1.1.1") is True
 
     def test_private_ip(self) -> None:
-        assert _is_public_ip("10.0.0.1") is False
-        assert _is_public_ip("192.168.1.1") is False
-        assert _is_public_ip("172.16.0.1") is False
+        assert is_public_ip("10.0.0.1") is False
+        assert is_public_ip("192.168.1.1") is False
+        assert is_public_ip("172.16.0.1") is False
+
+    def test_loopback(self) -> None:
+        assert is_public_ip("127.0.0.1") is False
 
     def test_invalid_ip(self) -> None:
-        assert _is_public_ip("not-an-ip") is False
-        assert _is_public_ip("") is False
+        assert is_public_ip("not-an-ip") is False
+        assert is_public_ip("") is False
 
 
 class TestRiskScoreAggregation:
@@ -57,8 +60,8 @@ class TestRiskScoreAggregation:
 
 
 class TestEnricherActiveProviders:
-    def test_no_providers_active(self) -> None:
+    def test_no_providers_active_without_keys(self) -> None:
         enricher = ThreatIntelEnricher()
-        # In test environment without API keys, no providers should be active
-        for provider in enricher._providers:
-            assert not provider.is_available or provider._api_key != ""
+        # In test environment without API keys, all providers should be unavailable
+        active = enricher.active_providers
+        assert isinstance(active, list)

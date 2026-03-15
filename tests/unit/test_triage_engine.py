@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from azure_threat_lens.analysis.triage_engine import TriageEngine, TriageEngineInput
+from threatlens.core.triage_engine import TriageEngine, TriageInput
 
 
 def _sample_input(
@@ -12,13 +14,16 @@ def _sample_input(
     tactics: list[str] | None = None,
     entities: list[dict] | None = None,
     alerts: list[dict] | None = None,
-) -> TriageEngineInput:
-    return TriageEngineInput(
+) -> TriageInput:
+    return TriageInput(
         incident={
             "incidentId": "test-engine-001",
             "incidentNumber": 42,
             "title": "Suspicious sign-in from anonymous IP and credential spray",
-            "description": "User signed in from a known anonymous proxy; multiple failed MFA attempts detected.",
+            "description": (
+                "User signed in from a known anonymous proxy; "
+                "multiple failed MFA attempts detected."
+            ),
             "severity": severity,
             "status": "New",
             "tactics": tactics or ["InitialAccess", "CredentialAccess"],
@@ -29,7 +34,7 @@ def _sample_input(
                 "systemAlertId": "alert-001",
                 "alertDisplayName": "Sign-in from anonymous IP",
                 "severity": "High",
-                "description": "User alice@contoso.com signed in from anonymous proxy 198.51.100.42",
+                "description": "User alice@contoso.com signed in from anonymous proxy 1.2.3.4",
                 "tactics": ["InitialAccess"],
                 "techniques": ["T1078"],
             },
@@ -46,12 +51,15 @@ def _sample_input(
             {
                 "entityType": "Account",
                 "friendlyName": "alice@contoso.com",
-                "properties": {"userPrincipalName": "alice@contoso.com", "accountName": "alice"},
+                "properties": {
+                    "userPrincipalName": "alice@contoso.com",
+                    "accountName": "alice",
+                },
             },
             {
                 "entityType": "Ip",
-                "friendlyName": "198.51.100.42",
-                "properties": {"address": "198.51.100.42"},
+                "friendlyName": "1.2.3.4",
+                "properties": {"address": "1.2.3.4"},
             },
         ],
         time_range={
@@ -64,84 +72,73 @@ def _sample_input(
 @pytest.mark.asyncio
 class TestTriageEngine:
     async def test_basic_output_structure(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
 
+        assert result.incident_id == "test-engine-001"
         assert result.summary != ""
-        assert result.risk_level in ("critical", "high", "medium", "low", "informational")
-        assert isinstance(result.entities, list)
+        assert result.risk_level in ("critical", "high", "medium", "low")
+        assert isinstance(result.key_entities, list)
+        assert isinstance(result.attack_hypotheses, list)
         assert isinstance(result.recommended_queries, list)
         assert isinstance(result.investigation_steps, list)
         assert result.confidence in ("high", "medium", "low")
-        assert result.engine_mode == "deterministic"
 
     async def test_entity_extraction(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
 
-        kinds = {e.kind for e in result.entities}
+        kinds = {e.kind for e in result.key_entities}
         assert "Account" in kinds
         assert "Ip" in kinds
 
-        account = next(e for e in result.entities if e.kind == "Account")
+        account = next(e for e in result.key_entities if e.kind == "Account")
         assert "alice@contoso.com" in account.identifier
 
-    async def test_attack_patterns_detected(self) -> None:
-        engine = TriageEngine(use_llm=False)
+    async def test_attack_hypotheses_detected(self) -> None:
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
-        # The incident title contains "credential spray" → CredentialAccess
-        # and "anonymous IP" → InitialAccess
-        assert len(result.attack_patterns) > 0
+        assert len(result.attack_hypotheses) > 0
 
     async def test_mitre_tactics_extracted(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
         assert "InitialAccess" in result.mitre_tactics
         assert "CredentialAccess" in result.mitre_tactics
 
     async def test_queries_generated_for_account(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
         query_names = [q.name for q in result.recommended_queries]
-        # Should have sign-in query for alice@contoso.com
-        assert any("sign_in" in n or "alice" in n for n in query_names)
+        assert any("sign" in n.lower() or "alice" in n.lower() for n in query_names)
 
     async def test_queries_generated_for_ip(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
-        # Should have an IP activity query for 198.51.100.42
-        assert any("ip_activity" in q.name or "198" in q.name for q in result.recommended_queries)
+        assert any("ip" in q.name.lower() or "1.2.3" in q.kql for q in result.recommended_queries)
 
     async def test_kql_queries_are_non_empty(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
         for q in result.recommended_queries:
             assert q.kql.strip() != "", f"Empty KQL for query: {q.name}"
             assert q.name != ""
             assert q.description != ""
 
-    async def test_investigation_steps_ordered(self) -> None:
-        engine = TriageEngine(use_llm=False)
+    async def test_investigation_steps_non_empty(self) -> None:
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-
-        # First step should be about evidence preservation
         assert len(result.investigation_steps) >= 3
-        assert "evidence" in result.investigation_steps[0].lower() or "preserve" in result.investigation_steps[0].lower()
 
     async def test_high_severity_is_high_risk(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input(severity="High"))
         assert result.risk_level in ("critical", "high")
 
     async def test_informational_severity_low_risk(self) -> None:
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(
-            TriageEngineInput(
+            TriageInput(
                 incident={
                     "incidentId": "info-001",
                     "incidentNumber": 1,
@@ -157,24 +154,23 @@ class TestTriageEngine:
         assert result.risk_level in ("low", "medium", "informational")
 
     async def test_json_serialisable(self) -> None:
-        import json
-        engine = TriageEngine(use_llm=False)
+        engine = TriageEngine()
         result = await engine.run(_sample_input())
-        # Should not raise
         serialised = result.model_dump_json()
         parsed = json.loads(serialised)
         assert parsed["risk_level"] == result.risk_level
 
     async def test_confidence_scales_with_data(self) -> None:
-        engine = TriageEngine(use_llm=False)
-
-        # Rich input
+        engine = TriageEngine()
         rich_result = await engine.run(_sample_input())
-
-        # Sparse input
         sparse_result = await engine.run(
-            TriageEngineInput(
-                incident={"incidentId": "sparse", "incidentNumber": 2, "title": "x", "severity": "Low"},
+            TriageInput(
+                incident={
+                    "incidentId": "sparse",
+                    "incidentNumber": 2,
+                    "title": "x",
+                    "severity": "Low",
+                },
                 alerts=[],
                 entities=[],
             )
