@@ -35,6 +35,7 @@ class LLMEngine:
         self._api_version = cfg.llm.api_version or _DEFAULT_API_VERSION
         self._max_tokens = cfg.llm.max_tokens
         self._temperature = cfg.llm.temperature
+        self._timeout = cfg.get_yaml("llm", "request_timeout", default=120)
         self._enabled = bool(self._endpoint and self._deployment)
         self._client: Any = None  # lazy-initialised on first use
 
@@ -105,6 +106,7 @@ class LLMEngine:
                 messages=messages,
                 max_tokens=max_tokens or self._max_tokens,
                 temperature=temperature if temperature is not None else self._temperature,
+                timeout=self._timeout,
             )
             content = response.choices[0].message.content or ""
             log.info(
@@ -142,6 +144,7 @@ class LLMEngine:
                 "messages": messages,
                 "max_tokens": self._max_tokens,
                 "temperature": self._temperature,
+                "timeout": self._timeout,
             }
             if response_format:
                 kwargs["response_format"] = response_format

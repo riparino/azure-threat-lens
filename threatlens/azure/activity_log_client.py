@@ -20,6 +20,15 @@ _ARM = "https://management.azure.com"
 _SCOPE = "https://management.azure.com/.default"
 _API = "2015-04-01"
 
+
+def _odata_str(value: str) -> str:
+    """Escape a string value for safe interpolation into an OData single-quoted literal.
+
+    In OData, a single quote inside a string literal is escaped by doubling it (``''``).
+    """
+    return value.replace("'", "''")
+
+
 # Categories of interest for security investigations
 SECURITY_CATEGORIES = {
     "Administrative",  # Resource CRUD, role changes
@@ -69,13 +78,13 @@ class ActivityLogClient(BaseAzureClient):
         filter_parts = [f"eventTimestamp ge '{since.isoformat()}'"]
 
         if resource_id:
-            filter_parts.append(f"resourceId eq '{resource_id}'")
+            filter_parts.append(f"resourceId eq '{_odata_str(resource_id)}'")
         if caller:
-            filter_parts.append(f"caller eq '{caller}'")
+            filter_parts.append(f"caller eq '{_odata_str(caller)}'")
 
         cats = categories or SECURITY_CATEGORIES
         if cats:
-            cat_filters = " or ".join(f"category eq '{c}'" for c in cats)
+            cat_filters = " or ".join(f"category eq '{_odata_str(c)}'" for c in cats)
             filter_parts.append(f"({cat_filters})")
 
         params: dict[str, Any] = {

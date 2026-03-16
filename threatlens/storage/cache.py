@@ -179,7 +179,7 @@ class ThreatLensCache:
             return value
         # L2 fallback
         if self._l2:
-            value = await asyncio.get_event_loop().run_in_executor(None, self._l2.get, key)
+            value = await asyncio.get_running_loop().run_in_executor(None, self._l2.get, key)
             if value is not None:
                 # Promote to L1
                 await self._l1.set(key, value, self._ttl)
@@ -190,14 +190,14 @@ class ThreatLensCache:
         effective_ttl = ttl if ttl is not None else self._ttl
         await self._l1.set(key, value, effective_ttl)
         if self._l2:
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, self._l2.set, key, value, effective_ttl
             )
 
     async def delete(self, key: str) -> None:
         await self._l1.delete(key)
         if self._l2:
-            await asyncio.get_event_loop().run_in_executor(None, self._l2.delete, key)
+            await asyncio.get_running_loop().run_in_executor(None, self._l2.delete, key)
 
     async def get_or_set(
         self,
@@ -219,7 +219,7 @@ class ThreatLensCache:
         l1_count = await self._l1.evict_expired()
         l2_count = 0
         if self._l2:
-            l2_count = await asyncio.get_event_loop().run_in_executor(
+            l2_count = await asyncio.get_running_loop().run_in_executor(
                 None, self._l2.evict_expired
             )
         return {"l1_evicted": l1_count, "l2_evicted": l2_count}

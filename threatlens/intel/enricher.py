@@ -18,7 +18,14 @@ log = get_logger(__name__)
 def is_public_ip(address: str) -> bool:
     try:
         ip = ipaddress.ip_address(address)
-        return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+        return not (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
     except ValueError:
         return False
 

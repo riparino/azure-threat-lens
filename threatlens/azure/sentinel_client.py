@@ -181,6 +181,7 @@ def _mock_incidents() -> list[Incident]:
 
 
 def _mock_incident(incident_id: str) -> Incident:
+    log.warning("sentinel.mock_incident", incident_id=incident_id)
     return Incident.model_validate({
         "incidentId": incident_id, "incidentNumber": 9999,
         "title": f"[DEMO] Mock incident {incident_id}", "severity": "Medium",
