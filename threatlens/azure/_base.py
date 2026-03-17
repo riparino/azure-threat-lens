@@ -72,6 +72,8 @@ class BaseAzureClient:
                 client = await self._client()
                 resp = await client.request(method, url, params=params, json=json)
                 if resp.status_code == 401:
+                    log.warning("azure.token_expired", url=url)
+                    last_exc = AzureClientError("HTTP 401 Unauthorized", 401, resp.text)
                     await self._reset_client()
                     continue
                 if resp.status_code in self.RETRYABLE:
